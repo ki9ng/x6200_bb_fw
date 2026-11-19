@@ -9,6 +9,7 @@ target_sources(App PRIVATE
     sdr_cw.c
     sdr_am.c
     sdr_fm_disc.c
+    sdr_ctcss.c
     sdr_nbfm.c
     sdr_wfm.c
     sdr_agc.c

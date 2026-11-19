@@ -6,6 +6,7 @@
 #include "bsp_irq.h"
 #include "bsp_cordic.h"
 #include "drv_codec.h"
+#include "sdr_ctcss.h"
 #include "sdr_fm_disc.h"
 #include "sdr_nbfm_filters.h"
 #include "app_event.h"
@@ -83,6 +84,7 @@ static float s_filter_audio_coeffs[SDR_NBFM_FILTER_NUM_STAGES * 5];
 static float s_filter_audio_state[SDR_NBFM_FILTER_NUM_STAGES * 4];
 
 static float s_tx_angles[SDR_NBFM_BLOCK_SIZE];
+static float s_tx_ctcss[SDR_NBFM_BLOCK_SIZE];
 
 /* Squelch metric: HPF 3.5 kHz on the k-scaled discriminator output, before
  * emphasis and DC block. Updated once per demod block, read in the same ISR
@@ -218,6 +220,7 @@ void Sdr_NBFM_Init(void) {
     s_signal_metric = 0.0f;
 
     design_audio_filter();
+    Sdr_Ctcss_Init(SDR_NBFM_RATE);
 
     s_dc.alpha = (float)M_TWOPI * SDR_NBFM_DC_BLOCK_FREQ / SDR_NBFM_RATE;
     s_state.band = SDR_NBFM_BAND_10K;
@@ -251,6 +254,7 @@ static void apply_pending(void) {
         pre.x1 = 0.0f;
         pre.y1 = 0.0f;
         s_tx_angles[SDR_NBFM_BLOCK_SIZE - 1] = 0.0f;
+        Sdr_Ctcss_Reset();
     }
     if (s_pending.reset_metric) {
         s_pending.reset_metric = false;
@@ -314,10 +318,15 @@ void Sdr_NBFM_Mod(const float *audio, Sdr_IQ_Data *data) {
     const SdrNbfmBandCfg *bc = &k_band_cfg[s_state.band];
     float k = (float)bc->deviation_hz * 2.0f * (float)M_PI / (float)SDR_NBFM_RATE;
     float last_phase = s_tx_angles[SDR_NBFM_BLOCK_SIZE - 1];
+    /* CTCSS goes in after pre-emphasis: its deviation is set directly. */
+    bool ctcss = Sdr_Ctcss_Fill(s_tx_ctcss, data->size);
     for (size_t i = 0; i < data->size; i++) {
         float v = audio[i];
         if (bc->emphasis) {
             v = first_order_iir(&pre, v);
+        }
+        if (ctcss) {
+            v += s_tx_ctcss[i];
         }
         last_phase += k * v;
         s_tx_angles[i] = last_phase;
