@@ -11,7 +11,7 @@ SDR      = $(ROOT)/App/SDR
 DSP      = $(ROOT)/Drivers/CMSIS/DSP
 FILT     = $(DSP)/Source/FilteringFunctions
 SUPP     = $(DSP)/Source/SupportFunctions
-INCLUDES = -I$(SDR) -I$(DSP)/Include -I$(DSP)/PrivateInclude \
+INCLUDES = -Istubs -I$(ROOT)/App -I$(ROOT)/Platform -I$(SDR) -I$(DSP)/Include -I$(DSP)/PrivateInclude \
            -I$(ROOT)/Devices -I$(ROOT)/Drivers/CMSIS/Include -I$(ROOT)/Drivers/CMSIS/Core/Include
 LDLIBS   = -lm
 
@@ -25,7 +25,9 @@ BLOCKS_SRCS = test_sdr_blocks.c $(SDR)/sdr_halfband_decim.c $(SDR)/sdr_iir_decim
 
 SIDEBAND_SRCS = test_sdr_sideband.c $(SDR)/sdr_sideband.c $(CMSIS_SUP)
 
-BINS = test_sdr_iir test_sdr_blocks test_sdr_sideband
+COMP_SRCS = test_sdr_compressor.c $(SDR)/sdr_compressor.c stubs/stubs.c
+
+BINS = test_sdr_iir test_sdr_blocks test_sdr_sideband test_sdr_compressor
 
 .PHONY: all run clean
 
@@ -40,10 +42,14 @@ test_sdr_blocks: $(BLOCKS_SRCS)
 test_sdr_sideband: $(SIDEBAND_SRCS)
 	$(CC) $(CFLAGS) $(INCLUDES) -o $@ $(SIDEBAND_SRCS) $(LDLIBS)
 
+test_sdr_compressor: $(COMP_SRCS)
+	$(CC) $(CFLAGS) $(INCLUDES) -o $@ $(COMP_SRCS) $(LDLIBS)
+
 run: $(BINS)
 	./test_sdr_iir
 	./test_sdr_blocks
 	./test_sdr_sideband
+	./test_sdr_compressor
 
 clean:
 	rm -f $(BINS)
