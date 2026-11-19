@@ -1,6 +1,6 @@
 # Host-side DSP self-tests for App/SDR. No hardware, no HAL: pure DSP sources
 # are compiled for the build machine together with the portable C path of the
-# CMSIS-DSP sources already vendored in Drivers/CMSIS/DSP.
+# CMSIS-DSP the firmware links (Middlewares/Third_Party/ARM_CMSIS).
 #
 #   make -C tests/dsp run
 
@@ -8,7 +8,7 @@ CC      ?= gcc
 CFLAGS  ?= -std=gnu11 -Wall -Wextra -Wno-unused-parameter -O2
 ROOT     = ../..
 SDR      = $(ROOT)/App/SDR
-DSP      = $(ROOT)/Drivers/CMSIS/DSP
+DSP      = $(ROOT)/Middlewares/Third_Party/ARM_CMSIS
 FILT     = $(DSP)/Source/FilteringFunctions
 SUPP     = $(DSP)/Source/SupportFunctions
 INCLUDES = -Istubs -I$(ROOT)/App -I$(ROOT)/Platform -I$(SDR) -I$(DSP)/Include -I$(DSP)/PrivateInclude \
