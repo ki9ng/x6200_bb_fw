@@ -5,3 +5,4 @@ test_sdr_compressor
 test_sdr_agc
 test_sdr_ctcss
 test_sdr_nbfm_ctcss
+test_sdr_fm_audio

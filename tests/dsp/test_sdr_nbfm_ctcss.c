@@ -5,12 +5,14 @@
  * instantaneous deviation in Hz.
  *
  * Checks: tone deviation on the 15 kHz (+-5 kHz) and 10 kHz (+-2.5 kHz)
- * bands, tone frequency, voice unaffected by the tone and the tone by voice,
- * and a clean end when the tone is turned off mid-transmission.
+ * bands, tone frequency, 1 kHz voice unchanged by the tone (within the
+ * passband ripple of the 300 Hz voice HPF that comes on with CTCSS) and the
+ * tone by voice, and a clean end when the tone is turned off mid-TX.
  *
  * Information (not pass/fail): the same I/Q looped back through
- * Sdr_NBFM_Demod, giving the received tone level relative to a 1 kHz voice
- * tone at 60 % deviation, i.e. how loud CTCSS is in the RX audio.
+ * Sdr_NBFM_Demod (voice path, RX tone filter on by default), giving the
+ * received tone level relative to a 1 kHz voice tone at 60 % deviation.
+ * test_sdr_fm_audio checks the RX tone filter on and off.
  *
  * Board services are stubbed (tests/dsp/stubs); the CORDIC stub uses libm.
  */
@@ -149,7 +151,7 @@ int main(void)
     modulate(0.5, 1000.0, -1);
     double voice_with = tone_amp(s_dev + skip, m, 1000.0);
     printf("  voice deviation alone %.1f Hz\n", voice_alone);
-    expect("voice change with tone on, dB", 20 * log10(voice_with / voice_alone), -0.01, 0.01);
+    expect("voice change with tone on, dB", 20 * log10(voice_with / voice_alone), -0.1, 0.1);
     expect("tone deviation under voice, Hz", tone_amp(s_dev + skip, m, 100.0), 594, 606);
 
     printf("tone turned off at 0.5 s, no voice\n");

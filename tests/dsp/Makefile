@@ -40,8 +40,12 @@ CTCSS_SRCS = test_sdr_ctcss.c $(SDR)/sdr_ctcss.c $(SDR)/sdr_iir.c stubs/stubs.c 
 NBFM_CTCSS_SRCS = test_sdr_nbfm_ctcss.c $(SDR)/sdr_nbfm.c $(SDR)/sdr_ctcss.c $(SDR)/sdr_fm_disc.c \
                   $(SDR)/sdr_iir.c stubs/stubs.c $(CMSIS_IIR) $(CMSIS_SIN) $(CMSIS_FIRF) $(CMSIS_PWR) $(CMSIS_SUP)
 
+FM_AUDIO_SRCS = test_sdr_fm_audio.c $(SDR)/sdr_tx.c $(SDR)/sdr_nbfm.c $(SDR)/sdr_ctcss.c \
+                $(SDR)/sdr_fm_disc.c $(SDR)/sdr_iir.c $(SDR)/sdr_compressor.c $(SDR)/sdr_soft_clipper.c \
+                stubs/stubs.c $(CMSIS_IIR) $(CMSIS_SIN) $(CMSIS_FIRF) $(CMSIS_PWR) $(CMSIS_SUP) $(CMSIS_BAS)
+
 BINS = test_sdr_iir test_sdr_blocks test_sdr_sideband test_sdr_compressor test_sdr_agc \
-       test_sdr_ctcss test_sdr_nbfm_ctcss
+       test_sdr_ctcss test_sdr_nbfm_ctcss test_sdr_fm_audio
 
 .PHONY: all run clean
 
@@ -68,6 +72,9 @@ test_sdr_ctcss: $(CTCSS_SRCS)
 test_sdr_nbfm_ctcss: $(NBFM_CTCSS_SRCS)
 	$(CC) $(CFLAGS) $(INCLUDES) -o $@ $(NBFM_CTCSS_SRCS) $(LDLIBS)
 
+test_sdr_fm_audio: $(FM_AUDIO_SRCS)
+	$(CC) $(CFLAGS) $(INCLUDES) -o $@ $(FM_AUDIO_SRCS) $(LDLIBS)
+
 run: $(BINS)
 	./test_sdr_iir
 	./test_sdr_blocks
@@ -76,6 +83,7 @@ run: $(BINS)
 	./test_sdr_agc
 	./test_sdr_ctcss
 	./test_sdr_nbfm_ctcss
+	./test_sdr_fm_audio
 
 clean:
 	rm -f $(BINS)
