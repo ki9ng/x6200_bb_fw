@@ -18,6 +18,7 @@ LDLIBS   = -lm
 CMSIS_IIR = $(FILT)/arm_biquad_cascade_df1_f32.c $(FILT)/arm_biquad_cascade_df1_init_f32.c
 CMSIS_FIR = $(FILT)/arm_fir_decimate_f32.c $(FILT)/arm_fir_decimate_init_f32.c
 CMSIS_SUP = $(SUPP)/arm_copy_f32.c $(SUPP)/arm_fill_f32.c
+CMSIS_BAS = $(DSP)/Source/BasicMathFunctions/arm_scale_f32.c
 
 IIR_SRCS    = test_sdr_iir.c $(SDR)/sdr_iir.c $(CMSIS_IIR)
 BLOCKS_SRCS = test_sdr_blocks.c $(SDR)/sdr_halfband_decim.c $(SDR)/sdr_iir_decim.c \
@@ -27,7 +28,9 @@ SIDEBAND_SRCS = test_sdr_sideband.c $(SDR)/sdr_sideband.c $(CMSIS_SUP)
 
 COMP_SRCS = test_sdr_compressor.c $(SDR)/sdr_compressor.c stubs/stubs.c
 
-BINS = test_sdr_iir test_sdr_blocks test_sdr_sideband test_sdr_compressor
+AGC_SRCS = test_sdr_agc.c $(SDR)/sdr_agc.c stubs/stubs.c $(CMSIS_SUP) $(CMSIS_BAS)
+
+BINS = test_sdr_iir test_sdr_blocks test_sdr_sideband test_sdr_compressor test_sdr_agc
 
 .PHONY: all run clean
 
@@ -45,11 +48,15 @@ test_sdr_sideband: $(SIDEBAND_SRCS)
 test_sdr_compressor: $(COMP_SRCS)
 	$(CC) $(CFLAGS) $(INCLUDES) -o $@ $(COMP_SRCS) $(LDLIBS)
 
+test_sdr_agc: $(AGC_SRCS)
+	$(CC) $(CFLAGS) $(INCLUDES) -o $@ $(AGC_SRCS) $(LDLIBS)
+
 run: $(BINS)
 	./test_sdr_iir
 	./test_sdr_blocks
 	./test_sdr_sideband
 	./test_sdr_compressor
+	./test_sdr_agc
 
 clean:
 	rm -f $(BINS)

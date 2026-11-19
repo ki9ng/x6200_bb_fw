@@ -2,3 +2,4 @@ test_sdr_iir
 test_sdr_blocks
 test_sdr_sideband
 test_sdr_compressor
+test_sdr_agc
