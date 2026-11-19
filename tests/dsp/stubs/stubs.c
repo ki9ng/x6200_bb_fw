@@ -47,3 +47,19 @@ int App_Event_SubscribeRxCfg(AppEventRxCfgFn cb, void *user)
     stub_rx_cfg_user = user;
     return 0;
 }
+
+/* CORDIC stand-in (the X6200 has a hardware unit; the host uses libm). */
+#include <math.h>
+#include "bsp_cordic.h"
+void Bsp_Cordic_SinCos(const float *angles_rad, float *out_sin, float *out_cos, uint32_t size)
+{
+    for (uint32_t i = 0; i < size; i++) {
+        out_sin[i] = sinf(angles_rad[i]);
+        out_cos[i] = cosf(angles_rad[i]);
+    }
+}
+void Bsp_Cordic_Atan2(const float *x_arr, const float *y_arr, float *out_atan2, uint32_t size)
+{
+    for (uint32_t i = 0; i < size; i++)
+        out_atan2[i] = atan2f(y_arr[i], x_arr[i]);
+}
