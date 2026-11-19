@@ -188,10 +188,16 @@ void Sdr_Tx_Process(const float *audio48, uint32_t n, SdrModulation mode,
     uint32_t audio_n = n;
 
     if (plan->needs_audio) {
-        arm_biquad_cascade_df1_f32(&s_hpf_inst, audio48, s_audio_bpf, n);
-        /* Perhaps, disable compressor and clipper for digital modes */
-        Sdr_Compressor_Process(s_audio_bpf, n);
-        Sdr_SoftClipper_Process(&s_clipper_voice_cfg, s_audio_bpf, s_audio_bpf, n);
+        if (mode == SDR_MOD_NFM && Sdr_NBFM_IsFlat()) {
+            /* Flat FM (data, USB audio): no voice HPF, compressor or clipper.
+             * The LPF below still bounds the occupied bandwidth. */
+            arm_copy_f32(audio48, s_audio_bpf, n);
+        } else {
+            arm_biquad_cascade_df1_f32(&s_hpf_inst, audio48, s_audio_bpf, n);
+            /* Perhaps, disable compressor and clipper for digital modes */
+            Sdr_Compressor_Process(s_audio_bpf, n);
+            Sdr_SoftClipper_Process(&s_clipper_voice_cfg, s_audio_bpf, s_audio_bpf, n);
+        }
         arm_biquad_cascade_df1_f32(&s_lpf_inst, s_audio_bpf, s_audio_bpf, n);
         arm_copy_f32(s_audio_bpf, monitor, n);
 

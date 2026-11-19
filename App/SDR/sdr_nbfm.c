@@ -35,6 +35,10 @@
 
 #define SDR_NBFM_SQUELCH_NOISE_DB (11.0f)
 
+/* Sub-audible HPF: CTCSS tops out at 254.1 Hz. */
+#define SDR_NBFM_TONE_HPF_HZ     300u
+#define SDR_NBFM_TONE_HPF_STAGES SDR_IIR_STAGES_5
+
 _Static_assert(SDR_NBFM_LPF_1K_NUM_TAPS == SDR_NBFM_FIR_CHAN_TAPS &&
                SDR_NBFM_LPF_5K_NUM_TAPS == SDR_NBFM_FIR_CHAN_TAPS,
                "NBFM channel LPFs must share the tap count");
@@ -85,6 +89,15 @@ static float s_filter_audio_state[SDR_NBFM_FILTER_NUM_STAGES * 4];
 
 static float s_tx_angles[SDR_NBFM_BLOCK_SIZE];
 static float s_tx_ctcss[SDR_NBFM_BLOCK_SIZE];
+static float s_tx_audio[SDR_NBFM_BLOCK_SIZE];
+
+/* Voice path only: TX while CTCSS is on, RX unless switched off. One design,
+ * separate states. */
+static float s_tone_hpf_coeffs[SDR_NBFM_TONE_HPF_STAGES * 5];
+static arm_biquad_casd_df1_inst_f32 s_tone_hpf_tx;
+static float s_tone_hpf_tx_state[SDR_NBFM_TONE_HPF_STAGES * 4];
+static arm_biquad_casd_df1_inst_f32 s_tone_hpf_rx;
+static float s_tone_hpf_rx_state[SDR_NBFM_TONE_HPF_STAGES * 4];
 
 /* Squelch metric: HPF 3.5 kHz on the k-scaled discriminator output, before
  * emphasis and DC block. Updated once per demod block, read in the same ISR
@@ -98,6 +111,8 @@ static struct {
     AppRadioMode radio_mode;
     SdrModulation rx_mode;
     SdrNbfmBand band;
+    SdrNbfmAudio audio;
+    bool rx_tone_filter;
 } s_state;
 
 static struct {
@@ -126,6 +141,21 @@ static void design_audio_filter(void) {
     int res = Sdr_Iir_DesignEllip(&spec, s_filter_audio_coeffs, &stages);
     LOG_DEBUG("NBFM audio filter: enbw %u, stages: %u, res: %i",
               (unsigned)SDR_NBFM_AUDIO_ENBW_HZ, stages, res);
+}
+
+static void design_tone_hpf(void) {
+    SdrIirSpec spec = {
+        .edge = SDR_IIR_EDGE_NOISE_BW,
+        .f_edge_hz = (float)SDR_NBFM_TONE_HPF_HZ,
+        .fs_hz = (float)SDR_NBFM_RATE,
+        .stages = SDR_NBFM_TONE_HPF_STAGES,
+        .type = SDR_IIR_TYPE_HPF
+    };
+    uint8_t stages;
+    int res = Sdr_Iir_DesignEllip(&spec, s_tone_hpf_coeffs, &stages);
+    if (res != SDR_IIR_OK) {
+        LOG_ERROR("NBFM tone HPF design failed: %i", res);
+    }
 }
 
 /* Events subscriptions */
@@ -220,7 +250,14 @@ void Sdr_NBFM_Init(void) {
     s_signal_metric = 0.0f;
 
     design_audio_filter();
+    design_tone_hpf();
+    arm_biquad_cascade_df1_init_f32(&s_tone_hpf_tx, SDR_NBFM_TONE_HPF_STAGES,
+                                    s_tone_hpf_coeffs, s_tone_hpf_tx_state);
+    arm_biquad_cascade_df1_init_f32(&s_tone_hpf_rx, SDR_NBFM_TONE_HPF_STAGES,
+                                    s_tone_hpf_coeffs, s_tone_hpf_rx_state);
     Sdr_Ctcss_Init(SDR_NBFM_RATE);
+    s_state.audio = SDR_NBFM_AUDIO_VOICE;
+    s_state.rx_tone_filter = true;
 
     s_dc.alpha = (float)M_TWOPI * SDR_NBFM_DC_BLOCK_FREQ / SDR_NBFM_RATE;
     s_state.band = SDR_NBFM_BAND_10K;
@@ -248,12 +285,14 @@ static void apply_pending(void) {
         arm_fill_f32(0.0f, s_fir_chan_state[band][0], SDR_NBFM_FIR_CHAN_STATE_SIZE);
         arm_fill_f32(0.0f, s_fir_chan_state[band][1], SDR_NBFM_FIR_CHAN_STATE_SIZE);
         arm_fill_f32(0.0f, s_filter_audio_state, SDR_NBFM_FILTER_NUM_STAGES * 4);
+        arm_fill_f32(0.0f, s_tone_hpf_rx_state, SDR_NBFM_TONE_HPF_STAGES * 4);
     }
     if (s_pending.reset_tx) {
         s_pending.reset_tx = false;
         pre.x1 = 0.0f;
         pre.y1 = 0.0f;
         s_tx_angles[SDR_NBFM_BLOCK_SIZE - 1] = 0.0f;
+        arm_fill_f32(0.0f, s_tone_hpf_tx_state, SDR_NBFM_TONE_HPF_STAGES * 4);
         Sdr_Ctcss_Reset();
     }
     if (s_pending.reset_metric) {
@@ -286,6 +325,8 @@ void Sdr_NBFM_Demod(const Sdr_IQ_Data *data, float *audio) {
     apply_pending();
     SdrNbfmBand band = s_state.band;
     const SdrNbfmBandCfg *bc = &k_band_cfg[band];
+    bool voice = s_state.audio == SDR_NBFM_AUDIO_VOICE;
+    bool emphasis = bc->emphasis && voice;
 
     /* LPF for signal */
     arm_fir_f32(&s_fir_chan[band][0], data->i, data->i, data->size);
@@ -296,13 +337,16 @@ void Sdr_NBFM_Demod(const Sdr_IQ_Data *data, float *audio) {
         float v = audio[i];
         /* Metric tap: k-scaled discriminator output before emphasis/DC. */
         s_metric_buf[i] = v * k;
-        if (bc->emphasis) {
+        if (emphasis) {
             v = first_order_iir(&de, v);
         }
         v = Sdr_DC_Filter_Apply(&s_dc, v);
         audio[i] = v * k;
     }
     nbfm_update_metric(data->size);
+    if (voice && s_state.rx_tone_filter) {
+        arm_biquad_cascade_df1_f32(&s_tone_hpf_rx, audio, audio, data->size);
+    }
     arm_biquad_cascade_df1_f32(&s_filter_audio_inst, audio, audio, data->size);
 }
 
@@ -318,11 +362,18 @@ void Sdr_NBFM_Mod(const float *audio, Sdr_IQ_Data *data) {
     const SdrNbfmBandCfg *bc = &k_band_cfg[s_state.band];
     float k = (float)bc->deviation_hz * 2.0f * (float)M_PI / (float)SDR_NBFM_RATE;
     float last_phase = s_tx_angles[SDR_NBFM_BLOCK_SIZE - 1];
+    bool voice = s_state.audio == SDR_NBFM_AUDIO_VOICE;
+    bool emphasis = bc->emphasis && voice;
     /* CTCSS goes in after pre-emphasis: its deviation is set directly. */
     bool ctcss = Sdr_Ctcss_Fill(s_tx_ctcss, data->size);
+    if (ctcss && voice) {
+        /* Keep voice out of the tone band. */
+        arm_biquad_cascade_df1_f32(&s_tone_hpf_tx, audio, s_tx_audio, data->size);
+        audio = s_tx_audio;
+    }
     for (size_t i = 0; i < data->size; i++) {
         float v = audio[i];
-        if (bc->emphasis) {
+        if (emphasis) {
             v = first_order_iir(&pre, v);
         }
         if (ctcss) {
@@ -332,4 +383,32 @@ void Sdr_NBFM_Mod(const float *audio, Sdr_IQ_Data *data) {
         s_tx_angles[i] = last_phase;
     }
     Bsp_Cordic_SinCos(s_tx_angles, data->q, data->i, data->size);
+}
+
+void Sdr_NBFM_SetAudio(SdrNbfmAudio path) {
+    if (path != SDR_NBFM_AUDIO_VOICE && path != SDR_NBFM_AUDIO_FLAT) {
+        return;
+    }
+    uint32_t key = Bsp_Irq_SaveLow();
+    if (s_state.audio != path) {
+        s_state.audio = path;
+        /* Emphasis and tone-HPF state belong to the old path. */
+        s_pending.reset_rx = true;
+        s_pending.reset_tx = true;
+    }
+    Bsp_Irq_RestoreLow(key);
+    LOG_DEBUG("NBFM audio %s", path == SDR_NBFM_AUDIO_FLAT ? "flat" : "voice");
+}
+
+void Sdr_NBFM_SetRxToneFilter(bool on) {
+    uint32_t key = Bsp_Irq_SaveLow();
+    if (s_state.rx_tone_filter != on) {
+        s_state.rx_tone_filter = on;
+        s_pending.reset_rx = true;
+    }
+    Bsp_Irq_RestoreLow(key);
+}
+
+bool Sdr_NBFM_IsFlat(void) {
+    return s_state.audio == SDR_NBFM_AUDIO_FLAT;
 }
